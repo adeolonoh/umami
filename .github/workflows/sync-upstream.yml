@@ -1,0 +1,45 @@
+name: Sync fork with upstream
+
+# Every day, merge new commits from umami-software/umami into master.
+# If GitHub cannot merge them without a conflict, the run fails and
+# nothing changes. Then resolve the conflict by hand.
+
+on:
+  schedule:
+    - cron: '0 10 * * *' # 10:00 UTC (6 AM US Eastern in summer, 5 AM in winter)
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    if: github.repository == 'adeolonoh/umami'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Merge upstream changes
+        env:
+          # SYNC_TOKEN (a token with the "workflow" scope) is optional. It is
+          # necessary only when upstream changes files in .github/workflows.
+          GH_TOKEN: ${{ secrets.SYNC_TOKEN || secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          if out=$(gh api -X POST "repos/$REPO/merge-upstream" -f branch="$BRANCH" 2>&1); then
+            echo "$out"
+            echo "### Sync result" >> "$GITHUB_STEP_SUMMARY"
+            echo "$out" | jq -r '.message' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::error::Sync with upstream failed: $out"
+            {
+              echo "### Sync failed"
+              echo
+              echo "$out"
+              echo
+              echo "HTTP 409 means a merge conflict. Merge upstream by hand."
+              echo "A message about workflow permission means upstream changed a workflow file."
+              echo "Add a SYNC_TOKEN secret (a token with the workflow scope), then run again."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
